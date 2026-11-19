@@ -5,11 +5,23 @@ Android-App fürs Laufband. Sie liest per Bluetooth mit, was das Band sendet, er
 ## Language
 
 **Session**:
-Eine Fahrt auf dem Band, so wie das Band sie zählt. Sie beginnt, wenn das Band läuft, und endet bei Stillstand, beim Zurücksetzen der Zähler oder wenn die Verbindung zum Band abbricht.
+Eine Fahrt auf dem Band, so wie das Band sie zählt. Sie beginnt, wenn das Band läuft, und endet nach zwanzig Sekunden Stillstand, beim Zurücksetzen der Zähler oder wenn die Verbindung zum Band abbricht.
 _Avoid_: Lauf, Trainingseinheit, Workout
 
+**Pause**:
+Ein Stillstand des Bands, der kürzer dauert als das Ende einer Session. Die Session läuft dabei weiter.
+_Avoid_: Halt, Stopp
+
+**Aufzeichnung aus**:
+Der Zustand, in dem der Dienst nicht läuft. Dann gibt es auch keine Dauerbenachrichtigung.
+_Avoid_: gestoppt, deaktiviert
+
+**Aufzeichnung pausiert**:
+Der Zustand, in dem der Dienst läuft, die App aber nicht mitschreibt und keine Verbindung zum Band hält. Das Band läuft dabei weiter; steht es später noch, übernimmt die App die Session beim Wiedereinschalten.
+_Avoid_: Standby, angehalten
+
 **Übernommene Session**:
-Eine Session, deren Anfang die App nicht mitgesehen hat. Sie ergibt sich beim Verbinden aus den Zählern des Bands; als Ende gilt der Zeitpunkt, an dem die App sie zum ersten Mal gelesen hat.
+Eine Session, deren Anfang die App nicht mitgesehen hat. Sie ergibt sich beim Verbinden aus den Zählern des Bands. Steht das Band dabei schon, gilt als Ende der Zeitpunkt des ersten Lesens; läuft es noch, endet sie wie jede andere.
 _Avoid_: verpasste Session, nachgeholte Session
 
 **Zähler**:

@@ -41,6 +41,17 @@ object Sessions {
         persist(context)
     }
 
+    /** Ersetzt eine gespeicherte Session, wenn die Session eine Trennung überlebt hat. */
+    fun replace(context: Context, old: Session, new: Session) {
+        val index = all.indexOf(old)
+        if (index < 0) {
+            append(context, new)
+            return
+        }
+        all[index] = new
+        persist(context)
+    }
+
     fun remove(context: Context, s: Session) {
         if (all.remove(s)) persist(context)
     }

@@ -1,6 +1,7 @@
 package de.tizian.hamsterrad
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -12,6 +13,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.CoroutineScope
@@ -28,108 +30,169 @@ private val CHR_FFF2 = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb")
 private val CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 private val POLL_FRAME = byteArrayOf(0x02, 0x51, 0x51, 0x03)
 
-private const val IDLE_STOP_MS = 20_000L
-private const val START_SPEED = 0.5
-private const val STOP_SPEED = 0.2
+private const val POLL_MS = 450L
+private const val ARM_BACKOFF_MS = 10_000L
+private const val RECONNECT_MS = 3_000L
+private const val SCAN_MS = 12_000L
+private const val SCAN_RETRY_MS = 60_000L
+private const val PENDING_NOTICE_MS = 2 * 60_000L
+private const val WAKELOCK_TAG = "hamsterrad:band"
 
-/** Ein Rahmen des Bands, so wie es ihn schickt. */
-data class Live(
-    val status: Int,
-    val speedKmh: Double,
-    val timeS: Int,
-    val distM: Int,
-    val kcal: Double,
-    val hr: Int,
-)
-
-/** Laufende Session, relativ zur Startmarke. */
-data class Now(
-    val seconds: Int,
-    val distanceM: Int,
-    val speedKmh: Double,
-    val hr: Int,
-    val kcal: Double,
-)
-
-data class Session(
-    val start: Long,
-    val end: Long,
-    val seconds: Int,
-    val distanceM: Int,
-    val kcal: Double,
-    val hrAvg: Int,
-    val hrMax: Int,
-)
-
+/**
+ * Die Verbindung zum Band. Läuft im Prozess des Dienstes, damit die Aufzeichnung
+ * ein geschlossenes Fenster und einen gesperrten Bildschirm überlebt.
+ */
 object Treadmill {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val engine = SessionEngine()
+
     private var ctx: Context? = null
     private var gatt: BluetoothGatt? = null
     private var writeChar: BluetoothGattCharacteristic? = null
     private var pollJob: Job? = null
+    private var tickJob: Job? = null
     private var scanning = false
     private var writePending = false
-
-    private var prev: Live? = null
-    private var active = false
-    private var idleSince = 0L
-    private var lastFrameAt = 0L
-    private var watchdogOn = false
-    private var sessionStartWall = 0L
-    private var hrSum = 0L
-    private var hrCount = 0
-    private var hrMax = 0
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var nextArmAt = 0L
+    private var pendingNotice: Session? = null
+    private var pendingSince = 0L
 
     val live = mutableStateOf<Live?>(null)
     val now = mutableStateOf<Now?>(null)
     val connected = mutableStateOf(false)
     val status = mutableStateOf("Suche Laufband …")
-    val lastDevice = mutableStateOf("")
+    val paused = mutableStateOf(false)
+    val serviceRunning = mutableStateOf(false)
+    val bluetoothOff = mutableStateOf(false)
+    val batteryExempt = mutableStateOf(true)
+    val permissionMissing = mutableStateOf(false)
 
+    /** Was die Aufzeichnung gerade tut. */
+    val state: RecordingState
+        get() = when {
+            permissionMissing.value -> RecordingState.MISSING_PERMISSION
+            !serviceRunning.value -> RecordingState.OFF
+            paused.value -> RecordingState.PAUSED
+            bluetoothOff.value -> RecordingState.NO_BLUETOOTH
+            now.value != null -> RecordingState.RUNNING
+            connected.value -> RecordingState.READY
+            else -> RecordingState.NO_BAND
+        }
+
+    /** Vom Dienst aufgerufen. Mehrfachaufrufe sind harmlos. */
     fun start(context: Context) {
-        if (ctx == null) ctx = context.applicationContext
+        ctx = context.applicationContext
         Sessions.load(context)
-        if (!scanning && gatt == null) scan()
-        if (!watchdogOn) {
-            watchdogOn = true
-            scope.launch {
-                var lastTry = 0L
+        paused.value = Prefs.paused(context)
+        engine.adopt(Sessions.all.firstOrNull())
+        serviceRunning.value = true
+        if (tickJob == null) {
+            tickJob = scope.launch {
                 while (true) {
-                    delay(5000)
-                    if (active && System.currentTimeMillis() - lastFrameAt > 25_000) {
-                        finishSession()
-                        status.value = "Band sendet nicht mehr"
-                    }
-                    val now = System.currentTimeMillis()
-                    if (gatt == null && !scanning && now - lastTry > 20_000) {
-                        lastTry = now
-                        scan()
-                    }
+                    delay(TICK_MS)
+                    tick()
                 }
             }
         }
-    }
-
-    // ---------------------------------------------------------------- Scan
-
-    @SuppressLint("MissingPermission")
-    fun scan() {
-        val c = ctx ?: return
-        if (scanning) return
-        val adapter = c.getSystemService(BluetoothManager::class.java).adapter ?: return
-        if (!adapter.isEnabled) {
-            status.value = "Bluetooth ist aus"
+        if (paused.value) {
+            updateNotification()
             return
         }
+        arm()
+        updateNotification()
+    }
+
+    /** Vom Dienst beim Beenden aufgerufen. */
+    fun stop() {
+        close()
+        tickJob?.cancel()
+        tickJob = null
+        serviceRunning.value = false
+    }
+
+    fun togglePause(context: Context) {
+        // Während einer Session gibt es keinen Ausschalter.
+        if (!paused.value && engine.now != null) return
+        val next = !paused.value
+        Prefs.setPaused(context, next)
+        paused.value = next
+        if (next) {
+            close()
+        } else {
+            engine.reset()
+            now.value = null
+            nextArmAt = 0
+            arm()
+        }
+        status.value = "Bereit"
+        updateNotification()
+    }
+
+    /** Für den Knopf im Cockpit: einmal suchen statt nur warten. */
+    fun reconnect() {
+        // Während einer Session wäre das ein Abbruch mit Umweg.
+        if (paused.value || engine.now != null) return
+        close()
+        nextArmAt = 0
+        scan()
+    }
+
+    // ---------------------------------------------------------------- Suchen
+
+    private fun bluetoothAdapter(c: Context) =
+        c.getSystemService(BluetoothManager::class.java)?.adapter
+
+    /** Liefert den Adapter, oder null und meldet den Zustand ins Cockpit. */
+    @SuppressLint("MissingPermission")
+    private fun readyAdapter(c: Context): BluetoothAdapter? {
+        val adapter = bluetoothAdapter(c)
+        if (adapter == null || !adapter.isEnabled) {
+            bluetoothOff.value = true
+            status.value = "Bluetooth ist aus"
+            return null
+        }
+        bluetoothOff.value = false
+        return adapter
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun arm() {
+        val c = ctx ?: return
+        if (gatt != null || scanning) return
+        nextArmAt = System.currentTimeMillis() + ARM_BACKOFF_MS
+        val adapter = readyAdapter(c) ?: return
+        val address = Prefs.address(c)
+        if (address == null) {
+            scan()
+            return
+        }
+        val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull() ?: return
+        status.value = "Warte auf ${Prefs.name(c) ?: address}"
+        gatt = runCatching {
+            device.connectGatt(c, true, callback, BluetoothDevice.TRANSPORT_LE)
+        }.onFailure { Log.w("Treadmill", "Verbinden fehlgeschlagen", it) }.getOrNull()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun scan() {
+        val c = ctx ?: return
+        if (scanning || gatt != null) return
+        val adapter = readyAdapter(c) ?: return
         val scanner = adapter.bluetoothLeScanner ?: return
         scanning = true
         status.value = "Suche Laufband …"
-        scanner.startScan(scanCallback)
+        runCatching { scanner.startScan(scanCallback) }
         scope.launch {
-            delay(12_000)
-            if (scanning) stopScan()
-            if (gatt == null) status.value = "Band nicht gefunden"
+            delay(SCAN_MS)
+            if (!scanning) return@launch
+            stopScan()
+            if (gatt == null) {
+                status.value = "Band nicht gefunden"
+                // Ohne bekannte Adresse nicht im Kreis suchen: das kostet nur Strom.
+                nextArmAt = System.currentTimeMillis() + SCAN_RETRY_MS
+            }
         }
     }
 
@@ -138,14 +201,15 @@ object Treadmill {
         if (!scanning) return
         scanning = false
         val c = ctx ?: return
-        val adapter = c.getSystemService(BluetoothManager::class.java).adapter
+        val adapter = c.getSystemService(BluetoothManager::class.java)?.adapter
         runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
     }
 
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            if (gatt != null) return
+            if (paused.value || gatt != null) return
+            val c = ctx ?: return
             val name = result.scanRecord?.deviceName
                 ?: runCatching { result.device.name }.getOrNull()
                 ?: return
@@ -156,45 +220,48 @@ object Treadmill {
                 name.startsWith("sProRun-") || name.startsWith("sWalk") ||
                 name.startsWith("sPad")
             if (!looksLikeTreadmill) return
+            Prefs.setDevice(c, result.device.address, name)
             status.value = "Verbinde mit $name …"
-            connect(result.device)
+            stopScan()
+            nextArmAt = 0
+            arm()
         }
     }
 
-    // --------------------------------------------------------------- GATT
-
-    @SuppressLint("MissingPermission")
-    private fun connect(device: BluetoothDevice) {
-        stopScan()
-        close()
-        lastDevice.value = runCatching { device.name }.getOrNull() ?: device.address
-        gatt = device.connectGatt(ctx, false, callback, BluetoothDevice.TRANSPORT_LE)
-    }
+    // ----------------------------------------------------------------- GATT
 
     private val callback = object : BluetoothGattCallback() {
 
         @SuppressLint("MissingPermission")
-        override fun onConnectionStateChange(g: BluetoothGatt, s: Int, newState: Int) {
+        override fun onConnectionStateChange(g: BluetoothGatt, stateStatus: Int, newState: Int) {
+            if (gatt !== g) return
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connected.value = true
+                bluetoothOff.value = false
+                writeChar = null
                 status.value = "Verbunden, ermittle Dienste …"
+                acquireWakeLock()
+                engine.onConnected()
                 runCatching { g.discoverServices() }
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                connected.value = false
-                status.value = "Getrennt"
-                stopPolling()
+                updateNotification()
+                return
+            }
+            if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                gatt = null
+                onLinkLost()
                 runCatching { g.close() }
-                if (gatt === g) gatt = null
-                finishSession()
-                scope.launch {
-                    delay(3000)
-                    if (gatt == null) scan()
-                }
+                status.value = "Band getrennt"
+                // Ein sauberer Abschied (Band aus) darf schnell wieder warten,
+                // ein gescheiterter Versuch braucht Abstand.
+                val wait = if (stateStatus == BluetoothGatt.GATT_SUCCESS) RECONNECT_MS else ARM_BACKOFF_MS
+                nextArmAt = System.currentTimeMillis() + wait
+                updateNotification()
             }
         }
 
         @SuppressLint("MissingPermission")
-        override fun onServicesDiscovered(g: BluetoothGatt, s: Int) {
+        override fun onServicesDiscovered(g: BluetoothGatt, stateStatus: Int) {
+            if (gatt !== g) return
             val svc = g.getService(SVC_FFF0)
             val notify = svc?.getCharacteristic(CHR_FFF1)
             writeChar = svc?.getCharacteristic(CHR_FFF2)
@@ -203,39 +270,48 @@ object Treadmill {
                 return
             }
             runCatching { g.setCharacteristicNotification(notify, true) }
-            val d = notify.getDescriptor(CCCD)
-            if (d == null) {
+            val descriptor = notify.getDescriptor(CCCD)
+            if (descriptor == null) {
                 status.value = "Bereit"
                 startPolling()
                 return
             }
             val ok = runCatching {
                 if (Build.VERSION.SDK_INT >= 33) {
-                    g.writeDescriptor(d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
+                    g.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
                         BluetoothGatt.GATT_SUCCESS
                 } else {
                     @Suppress("DEPRECATION")
                     run {
-                        d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        g.writeDescriptor(d)
+                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        g.writeDescriptor(descriptor)
                     }
                 }
             }.getOrDefault(false)
             if (!ok) startPolling()
         }
 
-        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) {
+        override fun onDescriptorWrite(
+            g: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            stateStatus: Int,
+        ) {
             status.value = "Bereit"
             startPolling()
         }
 
-        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) {
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            stateStatus: Int,
+        ) {
             writePending = false
         }
 
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
-            onFrame(c.value)
+            val value = c.value ?: return
+            scope.launch { onFrame(value) }
         }
 
         override fun onCharacteristicChanged(
@@ -243,11 +319,12 @@ object Treadmill {
             c: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
-            onFrame(value)
+            // Die Rahmen kommen auf einem Binder-Thread an; der Zustand gehört dem Main-Thread.
+            scope.launch { onFrame(value) }
         }
     }
 
-    // --------------------------------------------------------------- Poll
+    // ----------------------------------------------------------------- Poll
 
     @SuppressLint("MissingPermission")
     private fun startPolling() {
@@ -255,14 +332,13 @@ object Treadmill {
         pollJob = scope.launch {
             while (true) {
                 val g = gatt
-                val c = writeChar
-                if (g == null || c == null) break
+                val ch = writeChar
+                if (g == null || ch == null) break
                 if (!writePending) {
                     writePending = true
-                    val ok = runCatching { write(g, c) }.getOrDefault(false)
-                    if (!ok) writePending = false
+                    if (!runCatching { write(g, ch) }.getOrDefault(false)) writePending = false
                 }
-                delay(450)
+                delay(POLL_MS)
             }
         }
     }
@@ -271,100 +347,160 @@ object Treadmill {
         pollJob?.cancel()
         pollJob = null
         writePending = false
+        writeChar = null
     }
 
     @SuppressLint("MissingPermission")
-    private fun write(g: BluetoothGatt, c: BluetoothGattCharacteristic): Boolean {
+    private fun write(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
-            g.writeCharacteristic(c, POLL_FRAME, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) ==
-                BluetoothGatt.GATT_SUCCESS
+            g.writeCharacteristic(
+                characteristic,
+                POLL_FRAME,
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE,
+            ) == BluetoothGatt.GATT_SUCCESS
         } else {
             @Suppress("DEPRECATION")
             run {
-                c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                c.value = POLL_FRAME
-                g.writeCharacteristic(c)
+                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                characteristic.value = POLL_FRAME
+                g.writeCharacteristic(characteristic)
             }
         }
     }
 
-    // -------------------------------------------------------------- Rahmen
+    // --------------------------------------------------------------- Rahmen
 
     private fun onFrame(raw: ByteArray) {
-        val l = parse(raw) ?: return
-        live.value = l
-        lastFrameAt = System.currentTimeMillis()
-        Log.d("Treadmill", "t=${l.timeS} d=${l.distM} v=${l.speedKmh} hr=${l.hr}")
+        // Ein Rahmen kann eintreffen, während die Aufzeichnung gerade pausiert wird.
+        if (paused.value) return
+        val frame = parse(raw) ?: return
+        live.value = frame
+        dispatch(engine.onFrame(frame, System.currentTimeMillis()))
+    }
 
-        if (!active) {
-            prev = l
-            if (l.speedKmh >= START_SPEED) begin(l)
-            return
+    /** Der Zustand wird vor den Ereignissen übernommen, damit die Benachrichtigung
+     *  nicht mit dem Stand von eben überschrieben wird. */
+    private fun dispatch(events: List<Event>, notify: Boolean = true) {
+        now.value = engine.now
+        handle(events, notify)
+    }
+
+    private fun handle(events: List<Event>, notify: Boolean = true) {
+        for (event in events) {
+            when (event) {
+                is Event.Started -> {
+                    // Nur eine Fortsetzung macht die stille Speicherung überholt.
+                    if (event.replaces != null) pendingNotice = null
+                    status.value = if ((engine.now?.seconds ?: 0) > 5) "Session übernommen" else "Band läuft"
+                    updateNotification()
+                }
+                is Event.Finished -> save(event.session, event.adopted, event.replaces, notify)
+            }
         }
+    }
 
-        val p = prev
-        if (p != null && (l.timeS + 2 < p.timeS || l.distM + 2 < p.distM)) {
-            // Das Band setzt seine Zähler auf 0: das ist eine neue Fahrt, also neue Session.
-            finishSession()
-            begin(l)
-            prev = l
-            return
-        }
-        prev = l
-
-        // Anzeige ist eins zu eins das, was das Band zählt — auch wenn die App später verbindet.
-        now.value = Now(l.timeS, l.distM, l.speedKmh, l.hr, l.kcal)
-
-        if (l.hr in 30..220) {
-            hrSum += l.hr
-            hrCount++
-            if (l.hr > hrMax) hrMax = l.hr
-        }
-        if (l.speedKmh < STOP_SPEED) {
-            if (idleSince == 0L) idleSince = System.currentTimeMillis()
-            else if (System.currentTimeMillis() - idleSince >= IDLE_STOP_MS) finishSession()
+    private fun save(session: Session, adopted: Boolean, replaces: Session?, notify: Boolean) {
+        val c = ctx ?: return
+        if (replaces != null) {
+            Sessions.replace(c, replaces, session)
         } else {
-            idleSince = 0L
+            Sessions.append(c, session)
+        }
+        engine.remember(session)
+        status.value = if (adopted) "Session übernommen" else "Session gespeichert"
+        updateNotification()
+        if (notify) {
+            // Wurde die vorgemerkte Session fortgesetzt, ist ihre Nachricht überholt.
+            if (replaces != null && replaces == pendingNotice) pendingNotice = null
+            postSessionNotice(c, session)
+        } else {
+            // Mitten in einer Session abgerissen: still halten und erst melden,
+            // wenn die Session sicher vorbei ist.
+            pendingNotice = session
+            pendingSince = System.currentTimeMillis()
         }
     }
 
-    private fun begin(l: Live) {
-        active = true
-        prev = l
-        idleSince = 0L
-        lastFrameAt = System.currentTimeMillis()
-        sessionStartWall = System.currentTimeMillis() - l.timeS * 1000L
-        hrSum = 0
-        hrCount = 0
-        hrMax = 0
-        now.value = Now(l.timeS, l.distM, l.speedKmh, l.hr, l.kcal)
-        status.value = if (l.timeS > 5) "Session übernommen" else "Session läuft"
+    private fun postSessionNotice(c: Context, session: Session) {
+        if (!AppVisible.visible) Notifications.showSession(c, session)
     }
 
-    private fun finishSession() {
-        if (!active) return
-        val cur = now.value
-        active = false
-        now.value = null
-        prev = null
-        idleSince = 0L
-        if (cur == null || cur.seconds < 10 || cur.distanceM < 5) {
-            status.value = "Bereit"
-            return
+    private fun tick() {
+        val c = ctx ?: return
+        dispatch(engine.onTick(System.currentTimeMillis()))
+        val adapter = bluetoothAdapter(c)
+        bluetoothOff.value = adapter == null || !adapter.isEnabled
+        if (!paused.value && gatt == null && !scanning && System.currentTimeMillis() >= nextArmAt) arm()
+        if (engine.now != null) updateNotification()
+        val pending = pendingNotice
+        if (pending != null && engine.now == null &&
+            System.currentTimeMillis() - pendingSince >= PENDING_NOTICE_MS
+        ) {
+            pendingNotice = null
+            postSessionNotice(c, pending)
         }
-        val s = Session(
-            start = if (sessionStartWall > 0) sessionStartWall
-            else System.currentTimeMillis() - cur.seconds * 1000L,
-            end = System.currentTimeMillis(),
-            seconds = cur.seconds,
-            distanceM = cur.distanceM,
-            kcal = cur.kcal,
-            hrAvg = if (hrCount > 0) (hrSum / hrCount).toInt() else 0,
-            hrMax = hrMax,
-        )
-        ctx?.let { Sessions.append(it, s) }
-        status.value = "Session gespeichert"
     }
+
+    // -------------------------------------------------------- Benachrichtigung
+
+    private fun notificationText(): String = Recording.notification(state, now.value)
+
+    private fun notificationAction(): String? = Recording.action(state)
+
+    private fun updateNotification() {
+        val c = ctx ?: return
+        if (!serviceRunning.value) return
+        Notifications.updateForeground(c, notificationText(), notificationAction())
+    }
+
+    // ------------------------------------------------------------------ Ende
+
+    private fun onLinkLost() {
+        stopPolling()
+        releaseWakeLock()
+        connected.value = false
+        // Bricht die Verbindung mitten in einer Session ab, ist das meist ein
+        // Funkloch und nicht das Ende. Dann still speichern und erst am echten
+        // Ende melden.
+        val midRun = (engine.now?.speedKmh ?: 0.0) >= RUNNING_SPEED_KMH
+        dispatch(engine.onDisconnected(System.currentTimeMillis()), notify = !midRun)
+    }
+
+    private fun close() {
+        stopScan()
+        stopPolling()
+        val g = gatt
+        gatt = null
+        onLinkLost()
+        if (g != null) {
+            runCatching { g.disconnect() }
+            runCatching { g.close() }
+        }
+    }
+
+    // -------------------------------------------------------------- Wakelock
+
+    /**
+     * Ohne Wakelock schläft die CPU und der Abfragetakt steht. Doze ignoriert
+     * Wakelocks; die Akku-Ausnahme im Cockpit ist der zweite Teil der Absicherung.
+     */
+    @SuppressLint("WakelockTimeout")
+    private fun acquireWakeLock() {
+        val c = ctx ?: return
+        if (wakeLock == null) {
+            val pm = c.getSystemService(PowerManager::class.java) ?: return
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG)
+                .apply { setReferenceCounted(false) }
+        }
+        val lock = wakeLock ?: return
+        if (!lock.isHeld) runCatching { lock.acquire() }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+    }
+
+    // --------------------------------------------------------------- Rahmen
 
     private fun parse(b: ByteArray): Live? {
         if (b.size < 17) return null
@@ -374,7 +510,6 @@ object Treadmill {
         for (i in 1 until b.size - 2) xor = xor xor (b[i].toInt() and 0xFF)
         if (xor != (b[b.size - 2].toInt() and 0xFF)) return null
         return Live(
-            status = b[2].toInt() and 0xFF,
             speedKmh = (b[3].toInt() and 0xFF) / 10.0,
             timeS = u16(b, 5),
             distM = u16(b, 7),
@@ -385,16 +520,4 @@ object Treadmill {
 
     private fun u16(b: ByteArray, i: Int): Int =
         (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
-
-    @SuppressLint("MissingPermission")
-    private fun close() {
-        stopPolling()
-        val g = gatt ?: return
-        runCatching { g.disconnect() }
-        runCatching { g.close() }
-        gatt = null
-        connected.value = false
-    }
 }
-
-
