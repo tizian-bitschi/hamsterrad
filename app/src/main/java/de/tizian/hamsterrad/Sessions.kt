@@ -38,20 +38,11 @@ object Sessions {
 
     fun append(context: Context, s: Session) {
         all.add(0, s)
-        val arr = JSONArray()
-        for (x in all) {
-            arr.put(
-                JSONObject()
-                    .put("start", x.start)
-                    .put("end", x.end)
-                    .put("seconds", x.seconds)
-                    .put("distanceM", x.distanceM)
-                    .put("kcal", x.kcal)
-                    .put("hrAvg", x.hrAvg)
-                    .put("hrMax", x.hrMax),
-            )
-        }
-        runCatching { file(context).writeText(arr.toString()) }
+        persist(context)
+    }
+
+    fun remove(context: Context, s: Session) {
+        if (all.remove(s)) persist(context)
     }
 
     /** Summe ab Montag 00:00 dieser Woche. */
@@ -70,6 +61,22 @@ object Sessions {
         return week.size to week.sumOf { it.distanceM }
     }
 
-    private fun file(context: Context): File =
-        File(context.filesDir, FILE)
+    private fun persist(context: Context) {
+        val arr = JSONArray()
+        for (x in all) {
+            arr.put(
+                JSONObject()
+                    .put("start", x.start)
+                    .put("end", x.end)
+                    .put("seconds", x.seconds)
+                    .put("distanceM", x.distanceM)
+                    .put("kcal", x.kcal)
+                    .put("hrAvg", x.hrAvg)
+                    .put("hrMax", x.hrMax),
+            )
+        }
+        runCatching { file(context).writeText(arr.toString()) }
+    }
+
+    private fun file(context: Context): File = File(context.filesDir, FILE)
 }

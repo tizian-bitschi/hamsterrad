@@ -94,11 +94,17 @@ object Treadmill {
         if (!watchdogOn) {
             watchdogOn = true
             scope.launch {
+                var lastTry = 0L
                 while (true) {
                     delay(5000)
                     if (active && System.currentTimeMillis() - lastFrameAt > 25_000) {
                         finishSession()
                         status.value = "Band sendet nicht mehr"
+                    }
+                    val now = System.currentTimeMillis()
+                    if (gatt == null && !scanning && now - lastTry > 20_000) {
+                        lastTry = now
+                        scan()
                     }
                 }
             }
