@@ -1,14 +1,19 @@
 package de.tizian.hamsterrad
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,10 +68,14 @@ class MainActivity : ComponentActivity() {
     private var pending: (() -> Unit)? = null
 
     private val permissions =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-            if (grants.isNotEmpty() && grants.values.all { it }) pending?.invoke()
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            if (bluetoothGranted()) pending?.invoke()
+            else Treadmill.permissionMissing.value = true
             pending = null
         }
+
+    private val notifications =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,30 +83,78 @@ class MainActivity : ComponentActivity() {
         Sessions.load(this)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(Modifier.fillMaxSize(), color = Color.Black) { Cockpit() }
+                Surface(Modifier.fillMaxSize(), color = Color.Black) {
+                    Cockpit(onFixPermissions = { withPermissions(::startRecording) })
+                }
             }
         }
-        withPermissions { Treadmill.start(this) }
+        withPermissions(::startRecording)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Treadmill.batteryExempt.value = batteryExempt()
+    }
+
+    private fun startRecording() {
+        Treadmill.permissionMissing.value = false
+        TreadmillService.start(this)
+        askBatteryOnce()
+        askNotificationsOnce()
+    }
+
+    /** Die Benachrichtigung ist Kür: die Aufzeichnung läuft auch ohne sie. */
+    private fun askNotificationsOnce() {
+        if (Build.VERSION.SDK_INT < 33 || Prefs.askedNotifications(this)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        Prefs.setAskedNotifications(this)
+        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun bluetoothGranted(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) ==
+            PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun batteryExempt(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName)
+            ?: true
+
+    private fun askBatteryOnce() {
+        if (Prefs.askedBattery(this) || batteryExempt()) {
+            Treadmill.batteryExempt.value = batteryExempt()
+            return
+        }
+        Prefs.setAskedBattery(this)
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
+        }
     }
 
     private fun withPermissions(action: () -> Unit) {
-        val needed = if (Build.VERSION.SDK_INT >= 31) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (bluetoothGranted()) {
+            action()
+            return
         }
-        val missing = needed.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isEmpty()) action() else {
-            pending = action
-            permissions.launch(missing.toTypedArray())
-        }
+        pending = action
+        permissions.launch(
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT),
+        )
     }
 }
 
 @Composable
-private fun Cockpit() {
+private fun Cockpit(onFixPermissions: () -> Unit) {
     val live by Treadmill.live
     val now by Treadmill.now
     val status by Treadmill.status
@@ -105,7 +162,7 @@ private fun Cockpit() {
     var history by remember { mutableStateOf(false) }
 
     val speed = now?.speedKmh ?: live?.speedKmh ?: 0.0
-    val paused = now != null && speed < 0.2
+    val bandStill = now != null && speed < 0.2
     val last = Sessions.all.firstOrNull()
     val showLast = !connected && now == null && last != null
 
@@ -117,8 +174,8 @@ private fun Cockpit() {
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
-                if (paused) "Pause" else status,
-                color = if (paused) Amber else Cyan,
+                status,
+                color = Cyan,
                 fontSize = 12.sp,
                 letterSpacing = 1.sp,
             )
@@ -141,14 +198,14 @@ private fun Cockpit() {
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "${fmt2(last.distanceM / 1000.0)} km · ${dayFormat(last.start)} · ${last.hrAvg} bpm",
+                        "${formatKm(last.distanceM)} km · ${dayFormat(last.start)} · ${last.hrAvg} bpm",
                         color = Color(0xFF555555),
                         fontSize = 14.sp,
                     )
                 }
             } else {
                 Column(
-                    Modifier.alpha(if (paused) 0.35f else 1f),
+                    Modifier.alpha(if (bandStill) 0.35f else 1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("ZEIT", color = Dim, fontSize = 11.sp, letterSpacing = 5.sp)
@@ -163,7 +220,7 @@ private fun Cockpit() {
                     Text("DISTANZ", color = Dim, fontSize = 11.sp, letterSpacing = 5.sp)
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
-                            fmt2((now?.distanceM ?: 0) / 1000.0),
+                            formatKm(now?.distanceM ?: 0),
                             color = Cyan,
                             fontSize = 44.sp,
                             fontFamily = FontFamily.Monospace,
@@ -178,25 +235,57 @@ private fun Cockpit() {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             val hrs = now?.hr ?: live?.hr ?: 0
             Metric("TEMPO", if (showLast) "–" else paceText(speed), "min/km", Cyan)
-            Metric("SPEED", if (showLast) "–" else fmt1(speed), "km/h", Cyan)
+            Metric("SPEED", if (showLast) "–" else formatSpeed(speed), "km/h", Cyan)
             Metric("HF", if (showLast || hrs !in 30..220) "–" else "$hrs", "bpm", Magenta)
         }
 
         Spacer(Modifier.height(18.dp))
         val (weekCount, weekMetres) = Sessions.thisWeek()
         Text(
-            "Diese Woche: $weekCount Sessions · ${fmt2(weekMetres / 1000.0)} km",
+            "Diese Woche: $weekCount Sessions · ${formatKm(weekMetres)} km",
             color = Dim,
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             TextButton(onClick = { history = true }) { Text("Verlauf", color = Cyan) }
-            TextButton(onClick = { Treadmill.scan() }) { Text("Neu verbinden", color = Dim) }
+            TextButton(onClick = { Treadmill.reconnect() }) { Text("Neu verbinden", color = Dim) }
         }
+        Spacer(Modifier.height(10.dp))
+        RecordingLine(onFixPermissions)
     }
 
     if (history) HistoryDialog { history = false }
+}
+
+/** Eine Zeile, die zeigt, was die Aufzeichnung tut, und sie zugleich schaltet. */
+@Composable
+private fun RecordingLine(onFixPermissions: () -> Unit) {
+    val context = LocalContext.current
+    val state = Treadmill.state
+    val exempt by Treadmill.batteryExempt
+    val suffix = if (!exempt && state != RecordingState.MISSING_PERMISSION) {
+        " · Akku-Optimierung an"
+    } else {
+        ""
+    }
+
+    Text(
+        Recording.cockpit(state, Treadmill.now.value) + suffix,
+        color = if (state == RecordingState.PAUSED) Amber else Dim,
+        fontSize = 11.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = state != RecordingState.RUNNING) {
+                when (state) {
+                    RecordingState.MISSING_PERMISSION -> onFixPermissions()
+                    RecordingState.OFF -> TreadmillService.start(context)
+                    // Bluetooth einschalten kann nur der Nutzer; die Zeile sagt nur Bescheid.
+                    RecordingState.NO_BLUETOOTH -> Unit
+                    else -> Treadmill.togglePause(context)
+                }
+            },
+    )
 }
 
 @Composable
@@ -279,7 +368,7 @@ private fun SessionRow(s: Session) {
         ) {
             Text(dayFormat(s.start), color = Color.White, fontSize = 13.sp)
             Text(
-                "${fmtTime(s.seconds)} · ${fmt2(s.distanceM / 1000.0)} km · ${s.hrAvg} bpm",
+                summary(s.seconds, s.distanceM, s.hrAvg),
                 color = Dim,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
@@ -304,7 +393,7 @@ private fun Chart() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                Text(if (metres > 0) fmt2(metres / 1000.0) else "", fontSize = 8.sp, color = Dim)
+                Text(if (metres > 0) formatKm(metres) else "", fontSize = 8.sp, color = Dim)
                 Spacer(Modifier.height(2.dp))
                 Box(
                     Modifier
@@ -336,25 +425,5 @@ private fun dayBuckets(): List<Pair<String, Int>> {
     }
     return out
 }
-
-private fun fmtTime(s: Int): String {
-    val h = s / 3600
-    val m = (s % 3600) / 60
-    val sec = s % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
-}
-
-private fun fmt2(v: Double): String = String.format(Locale.GERMAN, "%.2f", v)
-
-private fun fmt1(v: Double): String = String.format(Locale.GERMAN, "%.1f", v)
-
-private fun paceText(speedKmh: Double): String {
-    if (speedKmh < 0.3) return "–"
-    val secPerKm = (3600 / speedKmh).toInt()
-    return "%d:%02d".format(secPerKm / 60, secPerKm % 60)
-}
-
-private fun dayFormat(ms: Long): String =
-    SimpleDateFormat("dd.MM. HH:mm", Locale.GERMAN).format(Date(ms))
 
 
