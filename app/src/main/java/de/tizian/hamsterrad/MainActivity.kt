@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.shape.RoundedCornerShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -186,6 +189,10 @@ private fun HistoryDialog(onClose: () -> Unit) {
                 Text("Noch keine Sessions.", color = Dim)
             } else {
                 LazyColumn {
+                    item {
+                        Chart(list)
+                        Spacer(Modifier.height(14.dp))
+                    }
                     items(list) { s ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 5.dp),
@@ -207,8 +214,42 @@ private fun HistoryDialog(onClose: () -> Unit) {
     )
 }
 
-private fun fmtTime(s: Int): String {
-    val h = s / 3600
+@Composable
+private fun Chart(list: List<Session>) {
+    val data = list.take(7).reversed()
+    if (data.isEmpty()) return
+    val max = data.maxOf { it.distanceM }.coerceAtLeast(1)
+    Row(
+        Modifier.fillMaxWidth().height(96.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        data.forEach { s ->
+            val h = ((s.distanceM.toFloat() / max) * 68f).coerceAtLeast(4f)
+            Column(
+                Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                Text(fmt2(s.distanceM / 1000.0), fontSize = 8.sp, color = Dim)
+                Spacer(Modifier.height(2.dp))
+                Box(
+                    Modifier
+                        .width(26.dp)
+                        .height(h.dp)
+                        .background(Cyan, RoundedCornerShape(2.dp)),
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(dayOnly(s.start), fontSize = 8.sp, color = Dim)
+            }
+        }
+    }
+}
+
+private fun dayOnly(ms: Long): String =
+    SimpleDateFormat("dd.MM.", Locale.GERMAN).format(Date(ms))
+
+private fun fmtTime(s: Int): String {    val h = s / 3600
     val m = (s % 3600) / 60
     val sec = s % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
@@ -226,3 +267,4 @@ private fun paceText(speedKmh: Double): String {
 
 private fun dayFormat(ms: Long): String =
     SimpleDateFormat("dd.MM. HH:mm", Locale.GERMAN).format(Date(ms))
+
