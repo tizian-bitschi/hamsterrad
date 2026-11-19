@@ -76,9 +76,7 @@ object Treadmill {
     private var idleSince = 0L
     private var lastFrameAt = 0L
     private var watchdogOn = false
-    private var accTime = 0
-    private var accDist = 0
-    private var accKcal = 0.0
+    private var sessionStartWall = 0L
     private var hrSum = 0L
     private var hrCount = 0
     private var hrMax = 0
@@ -290,6 +288,7 @@ object Treadmill {
         val l = parse(raw) ?: return
         live.value = l
         lastFrameAt = System.currentTimeMillis()
+        Log.d("Treadmill", "t=${l.timeS} d=${l.distM} v=${l.speedKmh} hr=${l.hr}")
 
         if (!active) {
             prev = l
@@ -298,20 +297,17 @@ object Treadmill {
         }
 
         val p = prev
-        if (p != null) {
-            val dt = l.timeS - p.timeS
-            val dd = l.distM - p.distM
-            // Die Zähler des Bands springen bei Stop/Start auf 0 zurück. Dann nur neu aufsetzen,
-            // statt einen negativen Sprung zu verbuchen.
-            if (dt in 0..20 && dd in 0..300) {
-                accTime += dt
-                accDist += dd
-                accKcal += (l.kcal - p.kcal).coerceIn(0.0, 100.0)
-            }
+        if (p != null && (l.timeS + 2 < p.timeS || l.distM + 2 < p.distM)) {
+            // Das Band setzt seine Zähler auf 0: das ist eine neue Fahrt, also neue Session.
+            finishSession()
+            begin(l)
+            prev = l
+            return
         }
         prev = l
-        Log.d("Treadmill", "t=${l.timeS} d=${l.distM} v=${l.speedKmh} hr=${l.hr} acc=${accTime}s/${accDist}m")
-        now.value = Now(accTime, accDist, l.speedKmh, l.hr, accKcal)
+
+        // Anzeige ist eins zu eins das, was das Band zählt — auch wenn die App später verbindet.
+        now.value = Now(l.timeS, l.distM, l.speedKmh, l.hr, l.kcal)
 
         if (l.hr in 30..220) {
             hrSum += l.hr
@@ -331,35 +327,32 @@ object Treadmill {
         prev = l
         idleSince = 0L
         lastFrameAt = System.currentTimeMillis()
-        accTime = 0
-        accDist = 0
-        accKcal = 0.0
+        sessionStartWall = System.currentTimeMillis() - l.timeS * 1000L
         hrSum = 0
         hrCount = 0
         hrMax = 0
-        now.value = Now(0, 0, l.speedKmh, l.hr, 0.0)
-        status.value = "Session läuft"
+        now.value = Now(l.timeS, l.distM, l.speedKmh, l.hr, l.kcal)
+        status.value = if (l.timeS > 5) "Session übernommen" else "Session läuft"
     }
 
     private fun finishSession() {
         if (!active) return
+        val cur = now.value
         active = false
-        val seconds = accTime
-        val metres = accDist
-        val kcal = accKcal
         now.value = null
         prev = null
         idleSince = 0L
-        if (seconds < 10 || metres < 5) {
+        if (cur == null || cur.seconds < 10 || cur.distanceM < 5) {
             status.value = "Bereit"
             return
         }
         val s = Session(
-            start = System.currentTimeMillis() - seconds * 1000L,
+            start = if (sessionStartWall > 0) sessionStartWall
+            else System.currentTimeMillis() - cur.seconds * 1000L,
             end = System.currentTimeMillis(),
-            seconds = seconds,
-            distanceM = metres,
-            kcal = kcal,
+            seconds = cur.seconds,
+            distanceM = cur.distanceM,
+            kcal = cur.kcal,
             hrAvg = if (hrCount > 0) (hrSum / hrCount).toInt() else 0,
             hrMax = hrMax,
         )
@@ -397,4 +390,5 @@ object Treadmill {
         connected.value = false
     }
 }
+
 
