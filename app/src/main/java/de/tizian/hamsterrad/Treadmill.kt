@@ -12,6 +12,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,8 +71,14 @@ object Treadmill {
     private var scanning = false
     private var writePending = false
 
-    private var baseline: Live? = null
+    private var prev: Live? = null
+    private var active = false
     private var idleSince = 0L
+    private var lastFrameAt = 0L
+    private var watchdogOn = false
+    private var accTime = 0
+    private var accDist = 0
+    private var accKcal = 0.0
     private var hrSum = 0L
     private var hrCount = 0
     private var hrMax = 0
@@ -86,6 +93,18 @@ object Treadmill {
         if (ctx == null) ctx = context.applicationContext
         Sessions.load(context)
         if (!scanning && gatt == null) scan()
+        if (!watchdogOn) {
+            watchdogOn = true
+            scope.launch {
+                while (true) {
+                    delay(5000)
+                    if (active && System.currentTimeMillis() - lastFrameAt > 25_000) {
+                        finishSession()
+                        status.value = "Band sendet nicht mehr"
+                    }
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Scan
@@ -163,6 +182,10 @@ object Treadmill {
                 runCatching { g.close() }
                 if (gatt === g) gatt = null
                 finishSession()
+                scope.launch {
+                    delay(3000)
+                    if (gatt == null) scan()
+                }
             }
         }
 
@@ -266,20 +289,30 @@ object Treadmill {
     private fun onFrame(raw: ByteArray) {
         val l = parse(raw) ?: return
         live.value = l
-        val base = baseline
-        if (base == null) {
+        lastFrameAt = System.currentTimeMillis()
+
+        if (!active) {
+            prev = l
             if (l.speedKmh >= START_SPEED) begin(l)
             return
         }
-        val seconds = (l.timeS - base.timeS).coerceAtLeast(0)
-        val metres = (l.distM - base.distM).coerceAtLeast(0)
-        now.value = Now(
-            seconds = seconds,
-            distanceM = metres,
-            speedKmh = l.speedKmh,
-            hr = l.hr,
-            kcal = (l.kcal - base.kcal).coerceAtLeast(0.0),
-        )
+
+        val p = prev
+        if (p != null) {
+            val dt = l.timeS - p.timeS
+            val dd = l.distM - p.distM
+            // Die Zähler des Bands springen bei Stop/Start auf 0 zurück. Dann nur neu aufsetzen,
+            // statt einen negativen Sprung zu verbuchen.
+            if (dt in 0..20 && dd in 0..300) {
+                accTime += dt
+                accDist += dd
+                accKcal += (l.kcal - p.kcal).coerceIn(0.0, 100.0)
+            }
+        }
+        prev = l
+        Log.d("Treadmill", "t=${l.timeS} d=${l.distM} v=${l.speedKmh} hr=${l.hr} acc=${accTime}s/${accDist}m")
+        now.value = Now(accTime, accDist, l.speedKmh, l.hr, accKcal)
+
         if (l.hr in 30..220) {
             hrSum += l.hr
             hrCount++
@@ -294,8 +327,13 @@ object Treadmill {
     }
 
     private fun begin(l: Live) {
-        baseline = l
+        active = true
+        prev = l
         idleSince = 0L
+        lastFrameAt = System.currentTimeMillis()
+        accTime = 0
+        accDist = 0
+        accKcal = 0.0
         hrSum = 0
         hrCount = 0
         hrMax = 0
@@ -304,20 +342,24 @@ object Treadmill {
     }
 
     private fun finishSession() {
-        val base = baseline ?: return
-        val cur = now.value ?: return
-        baseline = null
+        if (!active) return
+        active = false
+        val seconds = accTime
+        val metres = accDist
+        val kcal = accKcal
         now.value = null
-        if (cur.seconds < 10 || cur.distanceM < 5) {
+        prev = null
+        idleSince = 0L
+        if (seconds < 10 || metres < 5) {
             status.value = "Bereit"
             return
         }
         val s = Session(
-            start = System.currentTimeMillis() - cur.seconds * 1000L,
+            start = System.currentTimeMillis() - seconds * 1000L,
             end = System.currentTimeMillis(),
-            seconds = cur.seconds,
-            distanceM = cur.distanceM,
-            kcal = cur.kcal,
+            seconds = seconds,
+            distanceM = metres,
+            kcal = kcal,
             hrAvg = if (hrCount > 0) (hrSum / hrCount).toInt() else 0,
             hrMax = hrMax,
         )
@@ -355,3 +397,4 @@ object Treadmill {
         connected.value = false
     }
 }
+
