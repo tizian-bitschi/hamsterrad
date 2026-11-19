@@ -1,0 +1,5 @@
+.scratch/
+.gradle/
+build/
+local.properties
+*.apk
