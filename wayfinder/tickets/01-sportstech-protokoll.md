@@ -1,8 +1,8 @@
 ---
 id: "01"
 type: research
-status: open
-assignee: null
+status: in-progress
+assignee: protokoll-recherche
 blocked_by: []
 ---
 
