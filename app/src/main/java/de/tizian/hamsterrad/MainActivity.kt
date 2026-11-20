@@ -10,7 +10,9 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,7 +38,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,9 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,12 +57,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-
-private val Lime = Color(0xFFC6FF00)
-private val Cyan = Color(0xFF00E5FF)
-private val Magenta = Color(0xFFFF3D7F)
-private val Amber = Color(0xFFFFC400)
-private val Dim = Color(0xFF6A6A6A)
 
 class MainActivity : ComponentActivity() {
 
@@ -79,11 +74,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Papier ist hell: dunkle Symbole in den Systemleisten, Fenster schon vor Compose creme.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.light(Palette.Paper.toArgb(), Palette.Paper.toArgb()),
+        )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Sessions.load(this)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(Modifier.fillMaxSize(), color = Color.Black) {
+            MaterialTheme(colorScheme = HamsterTheme) {
+                Surface(Modifier.fillMaxSize(), color = Palette.Paper) {
                     Cockpit(onFixPermissions = { withPermissions(::startRecording) })
                 }
             }
@@ -169,19 +172,20 @@ private fun Cockpit(onFixPermissions: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Palette.Paper)
+            .safeDrawingPadding()
             .padding(horizontal = 22.dp, vertical = 26.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 status,
-                color = Cyan,
+                color = Palette.Forest,
                 fontSize = 12.sp,
                 letterSpacing = 1.sp,
             )
             Text(
                 if (connected) "● live" else "○ nicht verbunden",
-                color = if (connected) Lime else Dim,
+                color = if (connected) Palette.Forest else Palette.Muted,
                 fontSize = 12.sp,
             )
         }
@@ -189,17 +193,17 @@ private fun Cockpit(onFixPermissions: () -> Unit) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (showLast && last != null) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("LETZTE SESSION", color = Dim, fontSize = 11.sp, letterSpacing = 5.sp)
+                    Text("LETZTE SESSION", color = Palette.Muted, fontSize = 11.sp, letterSpacing = 5.sp)
                     Text(
                         fmtTime(last.seconds),
-                        color = Color(0xFF777777),
+                        color = Palette.Ink,
                         fontSize = 72.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        fontFamily = Numeral,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         "${formatKm(last.distanceM)} km · ${dayFormat(last.start)} · ${last.hrAvg} bpm",
-                        color = Color(0xFF555555),
+                        color = Palette.Muted,
                         fontSize = 14.sp,
                     )
                 }
@@ -208,25 +212,25 @@ private fun Cockpit(onFixPermissions: () -> Unit) {
                     Modifier.alpha(if (bandStill) 0.35f else 1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("ZEIT", color = Dim, fontSize = 11.sp, letterSpacing = 5.sp)
+                    Text("ZEIT", color = Palette.Muted, fontSize = 11.sp, letterSpacing = 5.sp)
                     Text(
                         fmtTime(now?.seconds ?: 0),
-                        color = Lime,
+                        color = Palette.Ink,
                         fontSize = 92.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        fontFamily = Numeral,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(16.dp))
-                    Text("DISTANZ", color = Dim, fontSize = 11.sp, letterSpacing = 5.sp)
+                    Text("DISTANZ", color = Palette.Muted, fontSize = 11.sp, letterSpacing = 5.sp)
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             formatKm(now?.distanceM ?: 0),
-                            color = Cyan,
+                            color = Palette.Forest,
                             fontSize = 44.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = Numeral,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                        Text(" km", color = Dim, fontSize = 15.sp, modifier = Modifier.padding(bottom = 8.dp))
+                        Text(" km", color = Palette.Muted, fontSize = 15.sp, modifier = Modifier.padding(bottom = 8.dp))
                     }
                 }
             }
@@ -234,22 +238,22 @@ private fun Cockpit(onFixPermissions: () -> Unit) {
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             val hrs = now?.hr ?: live?.hr ?: 0
-            Metric("TEMPO", if (showLast) "–" else paceText(speed), "min/km", Cyan)
-            Metric("SPEED", if (showLast) "–" else formatSpeed(speed), "km/h", Cyan)
-            Metric("HF", if (showLast || hrs !in 30..220) "–" else "$hrs", "bpm", Magenta)
+            Metric("TEMPO", if (showLast) "–" else paceText(speed), "min/km")
+            Metric("SPEED", if (showLast) "–" else formatSpeed(speed), "km/h")
+            Metric("HF", if (showLast || hrs !in 30..220) "–" else "$hrs", "bpm")
         }
 
         Spacer(Modifier.height(18.dp))
         val (weekCount, weekMetres) = Sessions.thisWeek()
         Text(
             "Diese Woche: $weekCount Sessions · ${formatKm(weekMetres)} km",
-            color = Dim,
+            color = Palette.Muted,
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            TextButton(onClick = { history = true }) { Text("Verlauf", color = Cyan) }
-            TextButton(onClick = { Treadmill.reconnect() }) { Text("Neu verbinden", color = Dim) }
+            TextButton(onClick = { history = true }) { Text("Verlauf", color = Palette.Forest) }
+            TextButton(onClick = { Treadmill.reconnect() }) { Text("Neu verbinden", color = Palette.Forest) }
         }
         Spacer(Modifier.height(10.dp))
         RecordingLine(onFixPermissions)
@@ -269,12 +273,11 @@ private fun RecordingLine(onFixPermissions: () -> Unit) {
     } else {
         ""
     }
+    val paused = state == RecordingState.PAUSED
 
-    Text(
-        Recording.cockpit(state, Treadmill.now.value) + suffix,
-        color = if (state == RecordingState.PAUSED) Amber else Dim,
-        fontSize = 11.sp,
-        modifier = Modifier
+    // Der Chip ist so breit wie sein Text; die Klickfläche bleibt die ganze Zeile.
+    Box(
+        Modifier
             .fillMaxWidth()
             .clickable(enabled = state != RecordingState.RUNNING) {
                 when (state) {
@@ -285,22 +288,35 @@ private fun RecordingLine(onFixPermissions: () -> Unit) {
                     else -> Treadmill.togglePause(context)
                 }
             },
-    )
+    ) {
+        Text(
+            Recording.cockpit(state, Treadmill.now.value) + suffix,
+            color = if (paused) Palette.Paper else Palette.Muted,
+            fontSize = 11.sp,
+            modifier = if (paused) {
+                Modifier
+                    .background(Palette.Ink, RoundedCornerShape(2.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            } else {
+                Modifier
+            },
+        )
+    }
 }
 
 @Composable
-private fun Metric(label: String, value: String, unit: String, color: Color) {
+private fun Metric(label: String, value: String, unit: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = Dim, fontSize = 10.sp, letterSpacing = 3.sp)
+        Text(label, color = Palette.Muted, fontSize = 10.sp, letterSpacing = 3.sp)
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 value,
-                color = color,
+                color = Palette.Forest,
                 fontSize = 28.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
+                fontFamily = Numeral,
+                fontWeight = FontWeight.SemiBold,
             )
-            Text(" $unit", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(bottom = 5.dp))
+            Text(" $unit", color = Palette.Muted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 5.dp))
         }
     }
 }
@@ -310,7 +326,7 @@ private fun HistoryDialog(onClose: () -> Unit) {
     AlertDialog(
         onDismissRequest = onClose,
         confirmButton = { TextButton(onClick = onClose) { Text("Schließen") } },
-        title = { Text("Verlauf", color = Cyan) },
+        title = { Text("Verlauf", color = Palette.Ink) },
         text = {
             val list = Sessions.all
             LazyColumn {
@@ -318,18 +334,18 @@ private fun HistoryDialog(onClose: () -> Unit) {
                     Chart()
                     Spacer(Modifier.height(4.dp))
                     if (list.isNotEmpty()) {
-                        Text("Wischen löscht einen Eintrag.", color = Dim, fontSize = 10.sp)
+                        Text("Wischen löscht einen Eintrag.", color = Palette.Muted, fontSize = 10.sp)
                         Spacer(Modifier.height(6.dp))
                     }
                 }
                 if (list.isEmpty()) {
-                    item { Text("Noch keine Sessions.", color = Dim) }
+                    item { Text("Noch keine Sessions.", color = Palette.Muted) }
                 } else {
                     items(list, key = { it.start }) { s -> SessionRow(s) }
                 }
             }
         },
-        containerColor = Color(0xFF111111),
+        containerColor = Palette.Paper,
     )
 }
 
@@ -355,23 +371,22 @@ private fun SessionRow(s: Session) {
                 Modifier.fillMaxSize().padding(end = 12.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Text("löschen", color = Magenta, fontSize = 11.sp)
+                Text("löschen", color = Palette.Ink, fontSize = 11.sp)
             }
         },
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF111111))
+                .background(Palette.Sand)
                 .padding(vertical = 9.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(dayFormat(s.start), color = Color.White, fontSize = 13.sp)
+            Text(dayFormat(s.start), color = Palette.Ink, fontSize = 13.sp)
             Text(
                 summary(s.seconds, s.distanceM, s.hrAvg),
-                color = Dim,
+                color = Palette.Ink,
                 fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
             )
         }
     }
@@ -393,16 +408,19 @@ private fun Chart() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                Text(if (metres > 0) formatKm(metres) else "", fontSize = 8.sp, color = Dim)
+                Text(if (metres > 0) formatKm(metres) else "", fontSize = 8.sp, color = Palette.Muted)
                 Spacer(Modifier.height(2.dp))
                 Box(
                     Modifier
                         .width(24.dp)
                         .height(h.dp)
-                        .background(if (metres > 0) Cyan else Color(0xFF1B1B1B), RoundedCornerShape(2.dp)),
+                        .background(
+                            if (metres > 0) Palette.Forest else Palette.Sand,
+                            RoundedCornerShape(2.dp),
+                        ),
                 )
                 Spacer(Modifier.height(3.dp))
-                Text(label, fontSize = 8.sp, color = Dim)
+                Text(label, fontSize = 8.sp, color = Palette.Muted)
             }
         }
     }
@@ -425,5 +443,3 @@ private fun dayBuckets(): List<Pair<String, Int>> {
     }
     return out
 }
-
-
