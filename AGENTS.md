@@ -1,6 +1,6 @@
 # hamsterrad
 
-Android-App fürs Laufband. Liest per Bluetooth mit, was das Band sendet, erkennt eine Session automatisch am laufenden Band und speichert sie lokal. Neon-Dunkel-Cockpit, Hochformat, keine Cloud, keine Fernsteuerung des Bands.
+Android-App fürs Laufband. Liest per Bluetooth mit, was das Band sendet, erkennt eine Session automatisch am laufenden Band und speichert sie lokal. Helles Papier-Cockpit (Creme, Oxblood, Grün; siehe `docs/adr/0002-papier-statt-neon.md`), Hochformat, keine Cloud, keine Fernsteuerung des Bands.
 
 ## Agent skills
 
