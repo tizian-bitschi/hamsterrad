@@ -58,7 +58,7 @@ internal fun Einstellungen(
                 Column(Modifier.weight(1f)) {
                     Text("Aufzeichnung", color = Palette.Ink, fontSize = 15.sp)
                     Text(
-                        if (laeuft) "Session läuft" else Recording.kurz(zustand),
+                        Recording.stellung(zustand),
                         color = Palette.Muted,
                         fontSize = 12.sp,
                     )
@@ -74,6 +74,14 @@ internal fun Einstellungen(
                         uncheckedThumbColor = Palette.Muted,
                         uncheckedTrackColor = Palette.Sand,
                         uncheckedBorderColor = Palette.Muted,
+                        // Während einer Session ist der Schalter gesperrt, soll aber
+                        // weiterhin als "an" zu erkennen sein.
+                        disabledCheckedThumbColor = Palette.Paper,
+                        disabledCheckedTrackColor = Palette.Forest.copy(alpha = 0.35f),
+                        disabledCheckedBorderColor = Palette.Forest.copy(alpha = 0.35f),
+                        disabledUncheckedThumbColor = Palette.Muted,
+                        disabledUncheckedTrackColor = Palette.Sand,
+                        disabledUncheckedBorderColor = Palette.Muted,
                     ),
                 )
             }

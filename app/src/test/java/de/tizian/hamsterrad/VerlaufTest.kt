@@ -42,6 +42,7 @@ class VerlaufTest {
         assertEquals(7, eimer.size)
         assertEquals("22.11.", eimer[6].label)
         assertEquals(1200, eimer[6].meter)
+        assertEquals(1, eimer[6].sessions)
         assertEquals("21.11.", eimer[5].label)
         assertEquals(800, eimer[5].meter)
         assertEquals(2000, eimer.sumOf { it.meter })
@@ -96,8 +97,14 @@ class VerlaufTest {
             session("2026-10-27T10:00", 300, seconds = 900),
         )
 
-        assertEquals(Summe(1, 1200, 600), Verlauf.summe(Zeitraum.TAG, jetzt, sessions, zone))
-        assertEquals(Summe(2, 1500, 1500), Verlauf.summe(Zeitraum.WOCHE, jetzt, sessions, zone))
+        assertEquals(
+            Summe(1, 1200, 600),
+            Verlauf.summe(Verlauf.eimer(Zeitraum.TAG, jetzt, sessions, zone)),
+        )
+        assertEquals(
+            Summe(2, 1500, 1500),
+            Verlauf.summe(Verlauf.eimer(Zeitraum.WOCHE, jetzt, sessions, zone)),
+        )
     }
 
     @Test

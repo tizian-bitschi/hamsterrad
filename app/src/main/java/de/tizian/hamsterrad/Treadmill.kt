@@ -126,6 +126,9 @@ object Treadmill {
         // Ausschalten, wenn schon aus, ändert nichts. Einschalten ist wiederholbar,
         // auch wenn der Dienst früher gestorben ist.
         if (!an && !recording.value) return
+        // Der Zustand "Berechtigung fehlt" ist eine Erklärung für den Dienst, kein
+        // Schalterzustand: eine bewusste Handlung am Schalter räumt ihn weg.
+        permissionMissing.value = false
         Prefs.setRecording(context, an)
         recording.value = an
         if (an) {

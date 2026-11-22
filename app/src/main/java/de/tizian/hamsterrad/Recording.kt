@@ -23,8 +23,8 @@ internal object Recording {
         RecordingState.NO_BAND -> "Aufzeichnung bereit · Band nicht in Reichweite"
     }
 
-    /** Ein Wort für den Schalter in den Einstellungen. */
-    fun kurz(state: RecordingState): String = when (state) {
+    /** Die Stellung des Schalters in einem Wort. */
+    fun stellung(state: RecordingState): String = when (state) {
         RecordingState.OFF -> "aus"
         RecordingState.MISSING_PERMISSION -> "Berechtigung fehlt"
         RecordingState.NO_BLUETOOTH -> "Bluetooth aus"

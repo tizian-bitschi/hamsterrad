@@ -39,18 +39,21 @@ internal fun Cockpit(onAufzeichnung: (Boolean) -> Unit, onBerechtigungen: () -> 
     val showLast = !connected && now == null && last != null
 
     val hinweis = when (zustand) {
-        RecordingState.OFF -> Hinweis("Aufzeichnung aus", "Einschalten") { onAufzeichnung(true) }
+        RecordingState.OFF ->
+            Hinweis(Recording.notification(zustand, null), "Einschalten") { onAufzeichnung(true) }
         RecordingState.MISSING_PERMISSION ->
-            Hinweis("Bluetooth-Berechtigung fehlt", "Erlauben", onBerechtigungen)
-        RecordingState.NO_BLUETOOTH -> Hinweis("Bluetooth ist aus", null, null)
+            Hinweis(Recording.notification(zustand, null), "Erlauben", onBerechtigungen)
+        RecordingState.NO_BLUETOOTH ->
+            Hinweis(Recording.notification(zustand, null), null, null)
         else -> null
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 26.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
-                // Ist die Aufzeichnung aus, sagt das die Mitte; der Kopf bliebe sonst bei "Suche Laufband".
-                if (zustand == RecordingState.OFF) "" else status,
+                // Der Hinweis in der Mitte erklärt den Zustand; der Kopf bliebe sonst
+                // bei "Suche Laufband" oder widerspräche ihm.
+                if (hinweis != null) "" else status,
                 color = Palette.Forest,
                 fontSize = 12.sp,
                 letterSpacing = 1.sp,
@@ -65,7 +68,7 @@ internal fun Cockpit(onAufzeichnung: (Boolean) -> Unit, onBerechtigungen: () -> 
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             when {
                 hinweis != null -> HinweisBlock(hinweis)
-                showLast && last != null -> LetzteSession(last)
+                last != null && showLast -> LetzteSession(last)
                 else -> LiveWerte(now, bandStill)
             }
         }
@@ -125,7 +128,8 @@ private fun LetzteSession(last: Session) {
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "${formatKm(last.distanceM)} km · ${dayFormat(last.start)} · ${last.hrAvg} bpm",
+            "${formatKm(last.distanceM)} km · ${kurzDatum(last.start)} ${uhrzeit(last.start)} · " +
+                "${last.hrAvg} bpm",
             color = Palette.Muted,
             fontSize = 14.sp,
         )

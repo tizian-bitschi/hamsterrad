@@ -29,11 +29,11 @@ class RecordingTest {
 
     @Test
     fun `wort fuer den schalter in den einstellungen`() {
-        assertEquals("aus", Recording.kurz(RecordingState.OFF))
-        assertEquals("läuft", Recording.kurz(RecordingState.READY))
-        assertEquals("Session läuft", Recording.kurz(RecordingState.RUNNING))
-        assertEquals("Berechtigung fehlt", Recording.kurz(RecordingState.MISSING_PERMISSION))
-        assertEquals("Bluetooth aus", Recording.kurz(RecordingState.NO_BLUETOOTH))
-        assertEquals("wartet auf Band", Recording.kurz(RecordingState.NO_BAND))
+        assertEquals("aus", Recording.stellung(RecordingState.OFF))
+        assertEquals("läuft", Recording.stellung(RecordingState.READY))
+        assertEquals("Session läuft", Recording.stellung(RecordingState.RUNNING))
+        assertEquals("Berechtigung fehlt", Recording.stellung(RecordingState.MISSING_PERMISSION))
+        assertEquals("Bluetooth aus", Recording.stellung(RecordingState.NO_BLUETOOTH))
+        assertEquals("wartet auf Band", Recording.stellung(RecordingState.NO_BAND))
     }
 }

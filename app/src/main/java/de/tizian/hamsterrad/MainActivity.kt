@@ -70,21 +70,17 @@ class MainActivity : ComponentActivity() {
 
     /** Einschalten fragt zuerst die Bluetooth-Berechtigung; Ausschalten braucht keine. */
     private fun schalten(an: Boolean) {
-        if (!an) {
+        if (an) {
+            withPermissions(::startRecording)
+        } else {
             Treadmill.setRecording(this, false)
-            return
-        }
-        withPermissions {
-            Treadmill.permissionMissing.value = false
-            Treadmill.setRecording(this, true)
-            askBatteryOnce()
-            askNotificationsOnce()
         }
     }
 
     private fun startRecording() {
-        Treadmill.permissionMissing.value = false
-        TreadmillService.start(this)
+        // Idempotent: startet den Dienst auch dann, wenn der Schalter schon an ist,
+        // aber kein Dienst mehr läuft.
+        Treadmill.setRecording(this, true)
         askBatteryOnce()
         askNotificationsOnce()
     }

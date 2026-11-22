@@ -1,9 +1,7 @@
 package de.tizian.hamsterrad
 
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
-import java.util.Date
 import java.util.Locale
 
 private val WOCHENTAGE = arrayOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
@@ -46,6 +44,3 @@ internal fun paceOf(seconds: Int, metres: Int): String {
     if (seconds <= 0) return "–"
     return paceText(metres * 3.6 / seconds)
 }
-
-internal fun dayFormat(ms: Long): String =
-    SimpleDateFormat("dd.MM. HH:mm", Locale.GERMAN).format(Date(ms))
