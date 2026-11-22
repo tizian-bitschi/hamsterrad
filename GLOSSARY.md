@@ -13,12 +13,8 @@ Ein Stillstand des Bands, der kürzer dauert als das Ende einer Session. Die Ses
 _Avoid_: Halt, Stopp
 
 **Aufzeichnung aus**:
-Der Zustand, in dem der Dienst nicht läuft. Dann gibt es auch keine Dauerbenachrichtigung.
-_Avoid_: gestoppt, deaktiviert
-
-**Aufzeichnung pausiert**:
-Der Zustand, in dem der Dienst läuft, die App aber nicht mitschreibt und keine Verbindung zum Band hält. Das Band läuft dabei weiter; steht es später noch, übernimmt die App die Session beim Wiedereinschalten.
-_Avoid_: Standby, angehalten
+Der Zustand, in dem die App nicht mitschreibt: keine Verbindung zum Band, keine Dauerbenachrichtigung. Das Band läuft dabei weiter; wird die Aufzeichnung später wieder eingeschaltet, übernimmt die App die Session, die in der Zwischenzeit lief.
+_Avoid_: gestoppt, deaktiviert, pausiert, Standby
 
 **Übernommene Session**:
 Eine Session, deren Anfang die App nicht mitgesehen hat. Sie ergibt sich beim Verbinden aus den Zählern des Bands. Steht das Band dabei schon, gilt als Ende der Zeitpunkt des ersten Lesens; läuft es noch, endet sie wie jede andere.
@@ -45,5 +41,5 @@ Der Hauptbildschirm mit Zeit, Distanz, Tempo, Geschwindigkeit und Herzfrequenz.
 _Avoid_: Dashboard, Hauptansicht
 
 **Verlauf**:
-Die Liste aller gespeicherten Sessions mit Wochensumme und Balkendiagramm der letzten sieben Tage.
+Alle gespeicherten Sessions, nach Monaten geordnet, mit einer Summenzeile und einem Balkendiagramm über den gewählten Zeitraum. Eine Session lässt sich aus dem Verlauf heraus öffnen und löschen.
 _Avoid_: Historie, Log

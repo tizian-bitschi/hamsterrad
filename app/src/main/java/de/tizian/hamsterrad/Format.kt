@@ -1,8 +1,24 @@
 package de.tizian.hamsterrad
 
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
+
+private val WOCHENTAGE = arrayOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+/** „Di 22." */
+internal fun kurzDatum(ms: Long): String {
+    val tag = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
+    return "${WOCHENTAGE[tag.dayOfWeek.value - 1]} ${tag.dayOfMonth}."
+}
+
+/** „18:04" */
+internal fun uhrzeit(ms: Long): String {
+    val zeit = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalTime()
+    return "%02d:%02d".format(zeit.hour, zeit.minute)
+}
 
 internal fun fmtTime(s: Int): String {
     val h = s / 3600
@@ -23,6 +39,12 @@ internal fun paceText(speedKmh: Double): String {
     if (speedKmh < 0.3) return "–"
     val secPerKm = (3600 / speedKmh).toInt()
     return "%d:%02d".format(secPerKm / 60, secPerKm % 60)
+}
+
+/** Das Durchschnittstempo einer gespeicherten Session in min/km. */
+internal fun paceOf(seconds: Int, metres: Int): String {
+    if (seconds <= 0) return "–"
+    return paceText(metres * 3.6 / seconds)
 }
 
 internal fun dayFormat(ms: Long): String =

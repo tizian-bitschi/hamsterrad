@@ -5,7 +5,6 @@ import androidx.compose.runtime.mutableStateListOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.util.Calendar
 
 object Sessions {
 
@@ -56,20 +55,11 @@ object Sessions {
         if (all.remove(s)) persist(context)
     }
 
-    /** Summe ab Montag 00:00 dieser Woche. */
-    fun thisWeek(): Pair<Int, Int> {
-        val monday = Calendar.getInstance().apply {
-            firstDayOfWeek = Calendar.MONDAY
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            while (get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
-                add(Calendar.DAY_OF_MONTH, -1)
-            }
-        }.timeInMillis
-        val week = all.filter { it.start >= monday }
-        return week.size to week.sumOf { it.distanceM }
+    /** Legt eine versehentlich gelöschte Session an ihren alten Platz zurück. */
+    fun insert(context: Context, index: Int, s: Session) {
+        if (all.any { it.start == s.start }) return
+        all.add(index.coerceIn(0, all.size), s)
+        persist(context)
     }
 
     private fun persist(context: Context) {

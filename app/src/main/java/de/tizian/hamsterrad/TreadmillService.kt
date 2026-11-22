@@ -8,8 +8,8 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 
 /**
- * Die Aufzeichnung lebt hier, nicht in der Activity. Der Dienst läuft dauerhaft,
- * weil eine offene Bluetooth-Verbindung mit dem App-Prozess stirbt.
+ * Die Aufzeichnung lebt hier, nicht in der Activity. Der Dienst läuft, solange
+ * der Schalter an ist, weil eine offene Bluetooth-Verbindung mit dem App-Prozess stirbt.
  */
 class TreadmillService : Service() {
 
@@ -20,11 +20,10 @@ class TreadmillService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val state = if (Prefs.paused(this)) RecordingState.PAUSED else RecordingState.READY
         val started = runCatching {
             startForeground(
                 Notifications.FOREGROUND_ID,
-                Notifications.foreground(this, Recording.notification(state, null), Recording.action(state)),
+                Notifications.foreground(this, Recording.notification(RecordingState.READY, null)),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
         }
@@ -37,7 +36,6 @@ class TreadmillService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_TOGGLE) Treadmill.togglePause(this)
         Treadmill.start(this)
         return START_STICKY
     }
@@ -50,17 +48,22 @@ class TreadmillService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_TOGGLE = "de.tizian.hamsterrad.TOGGLE"
 
+        /** Startet den Dienst nur, wenn der Schalter an ist. */
         fun start(context: Context) {
+            if (!Prefs.recording(context)) return
             runCatching {
                 context.startForegroundService(Intent(context, TreadmillService::class.java))
             }
         }
+
+        fun stop(context: Context) {
+            runCatching { context.stopService(Intent(context, TreadmillService::class.java)) }
+        }
     }
 }
 
-/** Die Aufzeichnung kommt nach einem Neustart von selbst zurück. */
+/** Die Aufzeichnung kommt nach einem Neustart von selbst zurück, wenn der Schalter an ist. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
