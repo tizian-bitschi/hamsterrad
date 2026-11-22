@@ -1,9 +1,6 @@
 package de.tizian.hamsterrad
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -25,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 
 /** Der Schalter, die Verbindung, das System und die Version. */
 @Composable
@@ -43,7 +39,7 @@ internal fun Einstellungen(
     val zustand = Treadmill.state
     val bandName = Prefs.name(context)
     val bandAdresse = Prefs.address(context)
-    val darfMelden = benachrichtigungenErlaubt(context)
+    val darfMelden = Notifications.erlaubt(context)
 
     Column(
         Modifier
@@ -165,11 +161,6 @@ private fun Zeile(label: String, wert: String, aktion: (@Composable () -> Unit)?
         if (aktion != null) aktion()
     }
 }
-
-private fun benachrichtigungenErlaubt(context: Context): Boolean =
-    Build.VERSION.SDK_INT < 33 ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-        PackageManager.PERMISSION_GRANTED
 
 private fun versionName(context: Context): String = runCatching {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName

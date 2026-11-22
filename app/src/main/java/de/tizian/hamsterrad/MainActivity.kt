@@ -105,12 +105,7 @@ class MainActivity : ComponentActivity() {
 
     /** Die Benachrichtigung ist Kür: die Aufzeichnung läuft auch ohne sie. */
     private fun askNotificationsOnce() {
-        if (Build.VERSION.SDK_INT < 33 || Prefs.askedNotifications(this)) return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
+        if (Prefs.askedNotifications(this) || Notifications.erlaubt(this)) return
         Prefs.setAskedNotifications(this)
         notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }

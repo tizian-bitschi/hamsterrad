@@ -28,7 +28,7 @@ class VerlaufTest {
 
     @Test
     fun `tagseimer kennt sieben tage und zaehlt ab mitternacht`() {
-        val eimer = Verlauf.eimer(
+        val balken = Verlauf.balken(
             Zeitraum.TAG,
             jetzt,
             listOf(
@@ -39,18 +39,18 @@ class VerlaufTest {
             zone,
         )
 
-        assertEquals(7, eimer.size)
-        assertEquals("22.11.", eimer[6].label)
-        assertEquals(1200, eimer[6].meter)
-        assertEquals(1, eimer[6].sessions)
-        assertEquals("21.11.", eimer[5].label)
-        assertEquals(800, eimer[5].meter)
-        assertEquals(2000, eimer.sumOf { it.meter })
+        assertEquals(7, balken.size)
+        assertEquals("22.11.", balken[6].label)
+        assertEquals(1200, balken[6].meter)
+        assertEquals(1, balken[6].sessions)
+        assertEquals("21.11.", balken[5].label)
+        assertEquals(800, balken[5].meter)
+        assertEquals(2000, balken.sumOf { it.meter })
     }
 
     @Test
     fun `wocheneimer beginnt montag und reicht vier wochen`() {
-        val eimer = Verlauf.eimer(
+        val balken = Verlauf.balken(
             Zeitraum.WOCHE,
             jetzt,
             listOf(
@@ -62,13 +62,13 @@ class VerlaufTest {
             zone,
         )
 
-        assertEquals(listOf("KW 44", "KW 45", "KW 46", "KW 47"), eimer.map { it.label })
-        assertEquals(listOf(300, 0, 200, 100), eimer.map { it.meter })
+        assertEquals(listOf("KW 44", "KW 45", "KW 46", "KW 47"), balken.map { it.label })
+        assertEquals(listOf(300, 0, 200, 100), balken.map { it.meter })
     }
 
     @Test
     fun `monateimer reicht zwoelf monate`() {
-        val eimer = Verlauf.eimer(
+        val balken = Verlauf.balken(
             Zeitraum.MONAT,
             jetzt,
             listOf(
@@ -81,13 +81,13 @@ class VerlaufTest {
             zone,
         )
 
-        assertEquals(12, eimer.size)
-        assertEquals("Dez", eimer[0].label)
-        assertEquals(300, eimer[0].meter)
-        assertEquals("Okt", eimer[10].label)
-        assertEquals(200, eimer[10].meter)
-        assertEquals("Nov", eimer[11].label)
-        assertEquals(600, eimer[11].meter)
+        assertEquals(12, balken.size)
+        assertEquals("Dez", balken[0].label)
+        assertEquals(300, balken[0].meter)
+        assertEquals("Okt", balken[10].label)
+        assertEquals(200, balken[10].meter)
+        assertEquals("Nov", balken[11].label)
+        assertEquals(600, balken[11].meter)
     }
 
     @Test
@@ -99,11 +99,11 @@ class VerlaufTest {
 
         assertEquals(
             Summe(1, 1200, 600),
-            Verlauf.summe(Verlauf.eimer(Zeitraum.TAG, jetzt, sessions, zone)),
+            Verlauf.summe(Verlauf.balken(Zeitraum.TAG, jetzt, sessions, zone)),
         )
         assertEquals(
             Summe(2, 1500, 1500),
-            Verlauf.summe(Verlauf.eimer(Zeitraum.WOCHE, jetzt, sessions, zone)),
+            Verlauf.summe(Verlauf.balken(Zeitraum.WOCHE, jetzt, sessions, zone)),
         )
     }
 

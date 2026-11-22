@@ -102,8 +102,8 @@ private fun Liste(
     onOeffnen: (Session) -> Unit,
 ) {
     val jetzt = System.currentTimeMillis()
-    val eimer = Verlauf.eimer(zeitraum, jetzt, sessions)
-    val summe = Verlauf.summe(eimer)
+    val balken = Verlauf.balken(zeitraum, jetzt, sessions)
+    val summe = Verlauf.summe(balken)
     val laeuft by Treadmill.now
 
     Column(
@@ -116,7 +116,7 @@ private fun Liste(
         Spacer(Modifier.height(18.dp))
         ZeitraumWahl(zeitraum, onZeitraum)
         Spacer(Modifier.height(12.dp))
-        Diagramm(eimer)
+        Diagramm(balken)
         Spacer(Modifier.height(10.dp))
         Text(Verlauf.summenText(summe), color = Palette.Ink, fontSize = 13.sp)
         if (laeuft != null) {
@@ -203,15 +203,15 @@ private fun ZeitraumWahl(gewaehlt: Zeitraum, onWaehlen: (Zeitraum) -> Unit) {
 }
 
 @Composable
-private fun Diagramm(eimer: List<Eimer>) {
-    val max = eimer.maxOf { it.meter }.coerceAtLeast(1)
-    val schmal = eimer.size > 9
+private fun Diagramm(balken: List<Balken>) {
+    val max = balken.maxOf { it.meter }.coerceAtLeast(1)
+    val schmal = balken.size > 9
     Row(
         Modifier.fillMaxWidth().height(112.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(if (schmal) 2.dp else 4.dp),
     ) {
-        eimer.forEach { eintrag ->
+        balken.forEach { eintrag ->
             val hoehe = ((eintrag.meter.toFloat() / max) * 52f).coerceAtLeast(2f)
             Column(
                 Modifier.weight(1f),

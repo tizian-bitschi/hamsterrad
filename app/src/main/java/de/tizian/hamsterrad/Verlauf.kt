@@ -17,7 +17,7 @@ enum class Zeitraum(val titel: String) {
 }
 
 /** Ein Balken im Diagramm: ein Tag, eine Kalenderwoche oder ein Monat. */
-data class Eimer(
+data class Balken(
     val label: String,
     val meter: Int,
     val sekunden: Int,
@@ -44,28 +44,29 @@ object Verlauf {
         "Juli", "August", "September", "Oktober", "November", "Dezember",
     )
 
-    private data class Grenze(val label: String, val von: Long, val bis: Long)
+    /** Der Zeitraum, den ein Balken abdeckt: von Mitternacht bis zur nächsten Mitternacht. */
+    private data class Spanne(val label: String, val von: Long, val bis: Long)
 
-    fun eimer(
+    fun balken(
         zeitraum: Zeitraum,
         jetzt: Long,
         sessions: List<Session>,
         zone: ZoneId = ZoneId.systemDefault(),
-    ): List<Eimer> = grenzen(zeitraum, jetzt, zone).map { grenze ->
-        val drin = sessions.filter { it.start in grenze.von until grenze.bis }
-        Eimer(
-            label = grenze.label,
-            meter = drin.sumOf { it.distanceM },
-            sekunden = drin.sumOf { it.seconds },
-            sessions = drin.size,
+    ): List<Balken> = spannen(zeitraum, jetzt, zone).map { spanne ->
+        val imBalken = sessions.filter { it.start in spanne.von until spanne.bis }
+        Balken(
+            label = spanne.label,
+            meter = imBalken.sumOf { it.distanceM },
+            sekunden = imBalken.sumOf { it.seconds },
+            sessions = imBalken.size,
         )
     }
 
     /** Die Summe über die gezeigten Balken. */
-    fun summe(eimer: List<Eimer>): Summe = Summe(
-        sessions = eimer.sumOf { it.sessions },
-        meter = eimer.sumOf { it.meter },
-        sekunden = eimer.sumOf { it.sekunden },
+    fun summe(balken: List<Balken>): Summe = Summe(
+        sessions = balken.sumOf { it.sessions },
+        meter = balken.sumOf { it.meter },
+        sekunden = balken.sumOf { it.sekunden },
     )
 
     /** „3 Sessions · 5,42 km · 1:12:30" */
@@ -78,7 +79,7 @@ object Verlauf {
     fun monatsKopf(monat: YearMonth): String =
         "${MONATE_LANG[monat.monthValue - 1]} ${monat.year}"
 
-    private fun grenzen(zeitraum: Zeitraum, jetzt: Long, zone: ZoneId): List<Grenze> {
+    private fun spannen(zeitraum: Zeitraum, jetzt: Long, zone: ZoneId): List<Spanne> {
         val heute = Instant.ofEpochMilli(jetzt).atZone(zone).toLocalDate()
         return when (zeitraum) {
             Zeitraum.TAG -> tage(heute, zone)
@@ -87,20 +88,20 @@ object Verlauf {
         }
     }
 
-    private fun tage(heute: LocalDate, zone: ZoneId): List<Grenze> = (6 downTo 0).map { zurueck ->
+    private fun tage(heute: LocalDate, zone: ZoneId): List<Spanne> = (6 downTo 0).map { zurueck ->
         val tag = heute.minusDays(zurueck.toLong())
-        Grenze(
+        Spanne(
             label = String.format(Locale.GERMAN, "%02d.%02d.", tag.dayOfMonth, tag.monthValue),
             von = tag.atStartOfDay(zone).toInstant().toEpochMilli(),
             bis = tag.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
         )
     }
 
-    private fun wochen(heute: LocalDate, zone: ZoneId): List<Grenze> {
+    private fun wochen(heute: LocalDate, zone: ZoneId): List<Spanne> {
         val montag = heute.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         return (3 downTo 0).map { zurueck ->
             val start = montag.minusWeeks(zurueck.toLong())
-            Grenze(
+            Spanne(
                 label = "KW ${start.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}",
                 von = start.atStartOfDay(zone).toInstant().toEpochMilli(),
                 bis = start.plusWeeks(1).atStartOfDay(zone).toInstant().toEpochMilli(),
@@ -108,11 +109,11 @@ object Verlauf {
         }
     }
 
-    private fun monate(heute: LocalDate, zone: ZoneId): List<Grenze> {
+    private fun monate(heute: LocalDate, zone: ZoneId): List<Spanne> {
         val monat = YearMonth.from(heute)
         return (11 downTo 0).map { zurueck ->
             val yearMonth = monat.minusMonths(zurueck.toLong())
-            Grenze(
+            Spanne(
                 label = MONATE[yearMonth.monthValue - 1],
                 von = yearMonth.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli(),
                 bis = yearMonth.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli(),

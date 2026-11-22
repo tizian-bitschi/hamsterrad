@@ -59,7 +59,8 @@ internal fun Cockpit(onAufzeichnung: (Boolean) -> Unit, onBerechtigungen: () -> 
                 letterSpacing = 1.sp,
             )
             Text(
-                if (connected) "● live" else "○ nicht verbunden",
+                // "Live" sind laut Glossar die Werte des letzten Rahmens, nicht die Verbindung.
+                if (connected) "● verbunden" else "○ nicht verbunden",
                 color = if (connected) Palette.Forest else Palette.Muted,
                 fontSize = 12.sp,
             )

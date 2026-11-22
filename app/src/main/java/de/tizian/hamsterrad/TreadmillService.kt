@@ -20,6 +20,12 @@ class TreadmillService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Aus heißt aus: kein Dienst, keine Dauerbenachrichtigung. Der Start kann
+        // zwischengespeichert worden sein, bevor der Schalter fiel.
+        if (!Prefs.recording(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val started = runCatching {
             startForeground(
                 Notifications.FOREGROUND_ID,

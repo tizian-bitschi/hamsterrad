@@ -104,7 +104,7 @@ object Treadmill {
         }
         // Kam das Ausschalten zwischen Dienststart und hier, wird nicht mehr verbunden.
         if (!recording.value) {
-            updateNotification()
+            TreadmillService.stop(context)
             return
         }
         arm()
