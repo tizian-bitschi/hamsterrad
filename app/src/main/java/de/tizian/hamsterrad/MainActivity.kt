@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
                     Shell(
                         onAufzeichnung = ::schalten,
                         onBerechtigungen = { withPermissions(::startRecording) },
+                        onBluetooth = ::requestBluetooth,
                         onBenachrichtigungen = ::requestNotifications,
                         onAkku = ::requestBattery,
                     )
@@ -89,6 +90,11 @@ class MainActivity : ComponentActivity() {
     private fun requestNotifications() {
         if (Build.VERSION.SDK_INT < 33) return
         notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    /** Bluetooth einschalten kann nur der Nutzer; der Knopf bringt ihn hin. */
+    private fun requestBluetooth() {
+        runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
     }
 
     /** Aus den Einstellungen heraus: öffnet die Akku-Ausnahme, ohne das Fragen-Flag zu setzen. */

@@ -35,6 +35,7 @@ internal enum class Ziel(val titel: String) {
 internal fun Shell(
     onAufzeichnung: (Boolean) -> Unit,
     onBerechtigungen: () -> Unit,
+    onBluetooth: () -> Unit,
     onBenachrichtigungen: () -> Unit,
     onAkku: () -> Unit,
 ) {
@@ -49,6 +50,7 @@ internal fun Shell(
                 Ziel.COCKPIT -> Cockpit(
                     onAufzeichnung = onAufzeichnung,
                     onBerechtigungen = onBerechtigungen,
+                    onBluetooth = onBluetooth,
                 )
 
                 Ziel.VERLAUF -> VerlaufSeite()

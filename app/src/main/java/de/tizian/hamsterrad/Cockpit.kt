@@ -26,7 +26,11 @@ import androidx.compose.ui.unit.sp
 
 /** Der Hauptbildschirm: was das Band gerade tut, und was die Aufzeichnung tut. */
 @Composable
-internal fun Cockpit(onAufzeichnung: (Boolean) -> Unit, onBerechtigungen: () -> Unit) {
+internal fun Cockpit(
+    onAufzeichnung: (Boolean) -> Unit,
+    onBerechtigungen: () -> Unit,
+    onBluetooth: () -> Unit,
+) {
     val live by Treadmill.live
     val now by Treadmill.now
     val status by Treadmill.status
@@ -44,7 +48,7 @@ internal fun Cockpit(onAufzeichnung: (Boolean) -> Unit, onBerechtigungen: () -> 
         RecordingState.MISSING_PERMISSION ->
             Hinweis(Recording.notification(zustand, null), "Erlauben", onBerechtigungen)
         RecordingState.NO_BLUETOOTH ->
-            Hinweis(Recording.notification(zustand, null), null, null)
+            Hinweis(Recording.notification(zustand, null), "Bluetooth einschalten", onBluetooth)
         else -> null
     }
 
@@ -85,11 +89,10 @@ internal fun Cockpit(onAufzeichnung: (Boolean) -> Unit, onBerechtigungen: () -> 
 }
 
 /** Ein Zustand, in dem das Cockpit nichts messen kann: mit einem Knopf, der etwas dagegen tut. */
-private data class Hinweis(val titel: String, val aktion: String?, val onAktion: (() -> Unit)?)
+private data class Hinweis(val titel: String, val aktion: String, val onAktion: () -> Unit)
 
 @Composable
 private fun HinweisBlock(hinweis: Hinweis) {
-    val onAktion = hinweis.onAktion
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             hinweis.titel,
@@ -98,10 +101,8 @@ private fun HinweisBlock(hinweis: Hinweis) {
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
         )
-        if (hinweis.aktion != null && onAktion != null) {
-            Spacer(Modifier.height(20.dp))
-            PapierKnopf(hinweis.aktion, onAktion)
-        }
+        Spacer(Modifier.height(20.dp))
+        PapierKnopf(hinweis.aktion, hinweis.onAktion)
     }
 }
 
