@@ -8,10 +8,18 @@ object Prefs {
     private fun prefs(context: Context) =
         context.getSharedPreferences("hamsterrad", Context.MODE_PRIVATE)
 
-    fun paused(context: Context): Boolean = prefs(context).getBoolean("paused", false)
+    /**
+     * Der Schalterzustand der Aufzeichnung. Ältere Installationen kannten nur
+     * „pausiert“; wer damals pausiert hatte, startet mit ausgeschalteter Aufzeichnung.
+     */
+    fun recording(context: Context): Boolean {
+        val p = prefs(context)
+        if (p.contains("recording")) return p.getBoolean("recording", true)
+        return !p.getBoolean("paused", false)
+    }
 
-    fun setPaused(context: Context, value: Boolean) {
-        prefs(context).edit().putBoolean("paused", value).apply()
+    fun setRecording(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("recording", value).remove("paused").apply()
     }
 
     fun address(context: Context): String? = prefs(context).getString("address", null)

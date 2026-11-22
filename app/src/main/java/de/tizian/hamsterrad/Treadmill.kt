@@ -63,7 +63,7 @@ object Treadmill {
     val now = mutableStateOf<Now?>(null)
     val connected = mutableStateOf(false)
     val status = mutableStateOf("Suche Laufband …")
-    val paused = mutableStateOf(false)
+    val recording = mutableStateOf(true)
     val serviceRunning = mutableStateOf(false)
     val bluetoothOff = mutableStateOf(false)
     val batteryExempt = mutableStateOf(true)
@@ -74,18 +74,24 @@ object Treadmill {
         get() = when {
             permissionMissing.value -> RecordingState.MISSING_PERMISSION
             !serviceRunning.value -> RecordingState.OFF
-            paused.value -> RecordingState.PAUSED
             bluetoothOff.value -> RecordingState.NO_BLUETOOTH
             now.value != null -> RecordingState.RUNNING
             connected.value -> RecordingState.READY
             else -> RecordingState.NO_BAND
         }
 
+    /** Liest den gespeicherten Schalterzustand, bevor der erste Rahmen gezeichnet wird. */
+    fun prepare(context: Context) {
+        ctx = context.applicationContext
+        recording.value = Prefs.recording(context)
+        status.value = if (recording.value) "Suche Laufband …" else "Aufzeichnung aus"
+    }
+
     /** Vom Dienst aufgerufen. Mehrfachaufrufe sind harmlos. */
     fun start(context: Context) {
         ctx = context.applicationContext
         Sessions.load(context)
-        paused.value = Prefs.paused(context)
+        recording.value = Prefs.recording(context)
         engine.adopt(Sessions.all.firstOrNull())
         serviceRunning.value = true
         if (tickJob == null) {
@@ -96,8 +102,9 @@ object Treadmill {
                 }
             }
         }
-        if (paused.value) {
-            updateNotification()
+        // Kam das Ausschalten zwischen Dienststart und hier, wird nicht mehr verbunden.
+        if (!recording.value) {
+            TreadmillService.stop(context)
             return
         }
         arm()
@@ -110,30 +117,35 @@ object Treadmill {
         tickJob?.cancel()
         tickJob = null
         serviceRunning.value = false
+        status.value = "Aufzeichnung aus"
     }
 
-    fun togglePause(context: Context) {
-        // Während einer Session gibt es keinen Ausschalter.
-        if (!paused.value && engine.now != null) return
-        val next = !paused.value
-        Prefs.setPaused(context, next)
-        paused.value = next
-        if (next) {
-            close()
-        } else {
+    /** Schaltet die Aufzeichnung. Während einer Session ist beides gesperrt. */
+    fun setRecording(context: Context, an: Boolean) {
+        if (now.value != null) return
+        // Ausschalten, wenn schon aus, ändert nichts. Einschalten ist wiederholbar,
+        // auch wenn der Dienst früher gestorben ist.
+        if (!an && !recording.value) return
+        // Der Zustand "Berechtigung fehlt" ist eine Erklärung für den Dienst, kein
+        // Schalterzustand: eine bewusste Handlung am Schalter räumt ihn weg.
+        permissionMissing.value = false
+        Prefs.setRecording(context, an)
+        recording.value = an
+        if (an) {
             engine.reset()
             now.value = null
             nextArmAt = 0
-            arm()
+            TreadmillService.start(context)
+        } else {
+            TreadmillService.stop(context)
         }
-        status.value = "Bereit"
         updateNotification()
     }
 
-    /** Für den Knopf im Cockpit: einmal suchen statt nur warten. */
+    /** Für den Knopf in den Einstellungen: einmal suchen statt nur warten. */
     fun reconnect() {
         // Während einer Session wäre das ein Abbruch mit Umweg.
-        if (paused.value || engine.now != null) return
+        if (!recording.value || now.value != null) return
         close()
         nextArmAt = 0
         scan()
@@ -208,7 +220,7 @@ object Treadmill {
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            if (paused.value || gatt != null) return
+            if (!recording.value || gatt != null) return
             val c = ctx ?: return
             val name = result.scanRecord?.deviceName
                 ?: runCatching { result.device.name }.getOrNull()
@@ -371,8 +383,8 @@ object Treadmill {
     // --------------------------------------------------------------- Rahmen
 
     private fun onFrame(raw: ByteArray) {
-        // Ein Rahmen kann eintreffen, während die Aufzeichnung gerade pausiert wird.
-        if (paused.value) return
+        // Ein Rahmen kann eintreffen, während die Aufzeichnung gerade ausgeschaltet wird.
+        if (!recording.value) return
         val frame = parse(raw) ?: return
         live.value = frame
         dispatch(engine.onFrame(frame, System.currentTimeMillis()))
@@ -430,7 +442,7 @@ object Treadmill {
         dispatch(engine.onTick(System.currentTimeMillis()))
         val adapter = bluetoothAdapter(c)
         bluetoothOff.value = adapter == null || !adapter.isEnabled
-        if (!paused.value && gatt == null && !scanning && System.currentTimeMillis() >= nextArmAt) arm()
+        if (recording.value && gatt == null && !scanning && System.currentTimeMillis() >= nextArmAt) arm()
         if (engine.now != null) updateNotification()
         val pending = pendingNotice
         if (pending != null && engine.now == null &&
@@ -445,12 +457,10 @@ object Treadmill {
 
     private fun notificationText(): String = Recording.notification(state, now.value)
 
-    private fun notificationAction(): String? = Recording.action(state)
-
     private fun updateNotification() {
         val c = ctx ?: return
         if (!serviceRunning.value) return
-        Notifications.updateForeground(c, notificationText(), notificationAction())
+        Notifications.updateForeground(c, notificationText())
     }
 
     // ------------------------------------------------------------------ Ende

@@ -1,11 +1,15 @@
 package de.tizian.hamsterrad
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 
 object Notifications {
 
@@ -13,6 +17,12 @@ object Notifications {
     private const val CHANNEL_SESSION = "session"
     const val FOREGROUND_ID = 1
     private const val SESSION_ID = 2
+
+    /** Ob die App Benachrichtigungen zeigen darf. Unter Android 12 gibt es die Frage nicht. */
+    fun erlaubt(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -32,8 +42,8 @@ object Notifications {
     }
 
     /** Die Dauerbenachrichtigung, die am Dienst hängt. */
-    fun foreground(context: Context, text: String, action: String?): Notification {
-        val builder = Notification.Builder(context, CHANNEL_RECORDING)
+    fun foreground(context: Context, text: String): Notification =
+        Notification.Builder(context, CHANNEL_RECORDING)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Hamsterrad")
             .setContentText(text)
@@ -41,22 +51,12 @@ object Notifications {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setOngoing(true)
-        if (action != null) {
-            val toggle = PendingIntent.getService(
-                context,
-                1,
-                Intent(context, TreadmillService::class.java).setAction(TreadmillService.ACTION_TOGGLE),
-                PendingIntent.FLAG_IMMUTABLE,
-            )
-            builder.addAction(Notification.Action.Builder(null, action, toggle).build())
-        }
-        return builder.build()
-    }
+            .build()
 
-    fun updateForeground(context: Context, text: String, action: String?) {
+    fun updateForeground(context: Context, text: String) {
         runCatching {
             context.getSystemService(NotificationManager::class.java)
-                ?.notify(FOREGROUND_ID, foreground(context, text, action))
+                ?.notify(FOREGROUND_ID, foreground(context, text))
         }
     }
 
